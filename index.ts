@@ -9,7 +9,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync, spawn } from "node:child_process";
-import { detectRelevantTools } from "./src/keywords.js";
+import { detectRelevantTools } from "./src/keywords-strict.js";
 import { DSAClient } from "./src/api-client.js";
 import { checkPythonVersion, getPythonErrorMessage } from "./src/python-check.js";
 import { verifyInstallation } from "./src/verify.js";
