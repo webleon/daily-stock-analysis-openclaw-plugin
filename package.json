@@ -1,7 +1,7 @@
 {
   "name": "@webleon/daily-stock-analysis-openclaw-plugin",
   "version": "1.0.0",
-  "description": "Daily Stock Analysis plugin for OpenClaw - AI-powered stock analysis with Docker deployment",
+  "description": "AI-powered stock analysis plugin with Python deployment (no Docker required) - supports A/H/US markets",
   "type": "module",
   "main": "index.ts",
   "bin": {
@@ -40,6 +40,7 @@
     "openclaw.plugin.json",
     "package.json",
     "README.md",
+    "CHANGELOG.md",
     "docker/",
     "src/"
   ],

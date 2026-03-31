@@ -10,7 +10,7 @@
 - ✅ **AI Decision Dashboard** - Buy/sell points + checklist + risk alerts
 - ✅ **Agent Q&A** - 11 built-in strategies (Chan Theory, MA, Elliott Wave, etc.)
 - ✅ **Market Review** - Daily market overview and sector analysis
-- ✅ **Smart Detection** - Auto-detect stock-related queries in Chinese & English
+- ✅ **Smart Detection** - Auto-detect stock-related queries with weighted keywords
 
 ## Quick Start
 
@@ -56,19 +56,9 @@ TELEGRAM_CHAT_ID=your_chat_id
 
 ### 4. Start Service
 
-**Option A: Using OpenClaw tool**
+**Using OpenClaw tool:**
 ```
 deploy_dsa(action="start")
-```
-
-**Option B: Using install script**
-```bash
-node install.js --start-python
-```
-
-**Option C: With Web UI**
-```bash
-node install.js --start-webui
 ```
 
 ### 5. Verify
@@ -83,7 +73,8 @@ Should return:
   "plugin": "1.0.0",
   "service": "running",
   "serviceStatus": "running",
-  "serviceUrl": "http://localhost:8000"
+  "serviceUrl": "http://localhost:8009",
+  "port": 8009
 }
 ```
 
@@ -177,7 +168,9 @@ Returns:
   "installed": true,
   "configured": true,
   "installDir": "/Users/xxx/.openclaw/external-services/daily_stock_analysis",
-  "url": "http://localhost:8000"
+  "url": "http://localhost:8009",
+  "port": 8009,
+  "message": "✅ 已就绪，可以启动"
 }
 ```
 
@@ -247,7 +240,8 @@ Plugin config in `~/.openclaw/openclaw.json`:
       "daily-stock-analysis-openclaw-plugin": {
         "config": {
           "enabled": true,
-          "dsaBaseUrl": "http://localhost:8000",
+          "dsaBaseUrl": "http://localhost:8009",
+          "dsaPort": 8009,
           "autoDetectStock": true
         }
       }
@@ -262,12 +256,12 @@ Plugin config in `~/.openclaw/openclaw.json`:
 
 ```bash
 # Check status
-node install.js --status
+deploy_dsa(action="status")
 
 # Start service
-node install.js --start-python
+deploy_dsa(action="start")
 
-# View logs (check install directory)
+# View logs
 cd ~/.openclaw/external-services/daily_stock_analysis
 cat logs/*.log
 ```
@@ -283,17 +277,16 @@ python3 --version
 # Windows: Download from https://www.python.org/downloads/
 ```
 
-### Dependencies Installation Failed
+### Invalid Stock Code
 
-```bash
-cd ~/.openclaw/external-services/daily_stock_analysis
-venv/bin/pip install --upgrade pip
-venv/bin/pip install -r requirements.txt
+```
+Error: 无效的股票代码
+Hint: 格式示例：A 股 600519, 港股 hk00700, 美股 AAPL
 ```
 
 ### API Connection Failed
 
-1. Verify service is running: `curl http://localhost:8000/api/health`
+1. Verify service is running: `curl http://localhost:8009/api/health`
 2. Check firewall settings
 3. Restart service: `deploy_dsa(action="stop")` then `deploy_dsa(action="start")`
 

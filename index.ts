@@ -5,11 +5,12 @@
  * AI-powered stock analysis with Python deployment
  * 
  * Features:
- * - Auto-detect stock-related tasks
+ * - Auto-detect stock-related tasks with weighted keywords
  * - Python deployment with virtual environment (no Docker)
- * - Support A/H/US markets
+ * - Support A/H/US markets with validation
  * - Decision dashboard with buy/sell points
  * - Agent-based strategy Q&A
+ * - Comprehensive error handling with user-friendly messages
  * 
  * @packageDocumentation
  */
@@ -19,76 +20,12 @@ import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execSync, spawn } from "node:child_process";
-import { detectRelevantTools } from "./src/keywords.js";
-import { DSAClient, DSAConfig } from "./src/api-client.js";
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface PluginConfig {
-  enabled?: boolean;
-  dsaBaseUrl?: string;
-  dsaPort?: number;
-  autoDeploy?: boolean;
-  dockerInstallDir?: string;
-  autoDetectStock?: boolean;
-}
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const PLUGIN_NAME = "Daily Stock Analysis OpenClaw Plugin";
-const CACHE_DIR_NAME = ".dsa-cache";
-
-const DEFAULT_CONFIG: PluginConfig = {
-  enabled: true,
-  dsaBaseUrl: "http://localhost:8009",
-  dsaPort: 8009,
-  autoDeploy: false,
-  dockerInstallDir: "~/.openclaw/external-services/daily_stock_analysis",
-  autoDetectStock: true,
-};
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-function getPluginDir(): string {
-  return path.dirname(new URL(import.meta.url).pathname);
-}
-
-function expandHome(dir: string): string {
-  if (dir.startsWith('~')) {
-    return path.join(process.env.HOME || '', dir.slice(1));
-  }
-  return dir;
-}
-
-function runCommand(command: string, cwd?: string): string {
-  try {
-    return execSync(command, { 
-      cwd, 
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-  } catch (error: any) {
-    throw new Error(`Command failed: ${error.message}`);
-  }
-}
-
-function checkDSAService(baseUrl: string): boolean {
-  try {
-    const response = execSync(`curl -s -o /dev/null -w "%{http_code}" ${baseUrl}/api/health`, {
-      encoding: 'utf-8'
-    });
-    return response.trim() === '200';
-  } catch {
-    return false;
-  }
-}
+import { CONFIG, mergeConfig, validateConfig, type PluginConfig } from "./src/config.js";
+import { detectRelevantTools, getDetectionScores } from "./src/keywords.js";
+import { DSAClient, type DSAConfig } from "./src/api-client.js";
+import { parseStockCode, validateStockCodes, isValidStockCode } from "./src/validator.js";
+import { createError, getFriendlyError, detectErrorType, ERROR_CODES, handleApiError, logError } from "./src/errors.js";
+import * as deploy from "./src/deploy.js";
 
 // ============================================================================
 // Tool Implementations
@@ -96,324 +33,149 @@ function checkDSAService(baseUrl: string): boolean {
 
 function createTools(api: OpenClawPluginApi, config: PluginConfig) {
   const dsaConfig: DSAConfig = {
-    baseUrl: config.dsaBaseUrl || DEFAULT_CONFIG.dsaBaseUrl!,
+    baseUrl: config.dsaBaseUrl || CONFIG.DEFAULT_BASE_URL,
+    timeout: config.apiTimeout || CONFIG.API_TIMEOUT
   };
   
   const client = new DSAClient(dsaConfig);
-  const installDir = expandHome(config.dockerInstallDir || DEFAULT_CONFIG.dockerInstallDir!);
-  const venvDir = path.join(installDir, 'venv');
-  const python = process.platform === 'win32' ? path.join(venvDir, 'Scripts', 'python.exe') : path.join(venvDir, 'bin', 'python');
-  const pip = process.platform === 'win32' ? path.join(venvDir, 'Scripts', 'pip.exe') : path.join(venvDir, 'bin', 'pip');
-
-  // Auto-detect Python
-  function checkPython(): boolean {
-    try {
-      execSync('python3 --version', { stdio: 'pipe' });
-      return true;
-    } catch {
-      try {
-        execSync('python --version', { stdio: 'pipe' });
-        return true;
-      } catch {
-        return false;
-      }
-    }
-  }
-
-  // Auto-install dependencies if needed
-  function ensureDependencies(): { success: boolean; error?: string } {
-    try {
-      // Check if venv exists
-      if (!fs.existsSync(venvDir)) {
-        api.logger.info('Creating virtual environment...');
-        runCommand('python3 -m venv venv', installDir);
-      }
-
-      // Try to import key packages
-      try {
-        execSync(`${python} -c "import fastapi, uvicorn, pandas"`, { 
-          cwd: installDir, 
-          stdio: 'pipe' 
-        });
-        api.logger.info('Dependencies already installed');
-        return { success: true };
-      } catch {
-        api.logger.info('Installing dependencies (this may take a few minutes)...');
-        runCommand(`${pip} install --upgrade pip`, installDir);
-        runCommand(`${pip} install -r requirements.txt`, installDir);
-        return { success: true };
-      }
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
+  const installDir = path.expandHome?.(config.installDir || CONFIG.INSTALL_DIR) || 
+                     path.join(process.env.HOME || '', config.installDir?.slice(1) || CONFIG.INSTALL_DIR.slice(1));
 
   return {
     /**
-     * Analyze single stock
+     * Analyze single stock with validation
      */
     stock_analysis: async ({ code }: { code: string }) => {
-      const serviceRunning = checkDSAService(dsaConfig.baseUrl);
-      if (!serviceRunning) {
-        return {
-          error: "DSA 服务未运行，请先部署服务",
-          hint: "使用 deploy_dsa(action='install') 部署服务，然后 deploy_dsa(action='start') 启动",
-          autoInstallHint: true
-        };
+      // Validate stock code
+      const stockInfo = parseStockCode(code);
+      if (!stockInfo.isValid) {
+        return getFriendlyError(ERROR_CODES.INVALID_STOCK_CODE, {
+          code,
+          details: `支持格式：A 股 600519, 港股 hk00700, 美股 AAPL`
+        });
       }
 
-      try {
-        const result = await client.analyzeStock(code);
-        return {
-          code: result.code,
-          name: result.name,
-          conclusion: result.conclusion,
-          buyPrice: result.buyPrice,
-          stopLossPrice: result.stopLossPrice,
-          targetPrice: result.targetPrice,
-          checklist: result.checklist,
-          riskAlerts: result.riskAlerts,
-          opportunities: result.opportunities
-        };
-      } catch (error: any) {
-        return { error: error.message };
+      const serviceRunning = deploy.checkDSAService(dsaConfig.baseUrl);
+      if (!serviceRunning) {
+        return getFriendlyError(ERROR_CODES.SERVICE_NOT_RUNNING, {
+          hint: '使用 deploy_dsa(action="start") 启动服务'
+        });
       }
+
+      return handleApiError(
+        async () => {
+          const result = await client.analyzeStock(stockInfo.formattedCode);
+          return {
+            code: result.code,
+            name: result.name,
+            conclusion: result.conclusion,
+            buyPrice: result.buyPrice,
+            stopLossPrice: result.stopLossPrice,
+            targetPrice: result.targetPrice,
+            checklist: result.checklist,
+            riskAlerts: result.riskAlerts,
+            opportunities: result.opportunities
+          };
+        },
+        { operationName: 'stock_analysis' }
+      );
     },
 
     /**
-     * Batch analyze stocks
+     * Batch analyze stocks with validation
      */
     batch_analysis: async ({ codes }: { codes: string[] }) => {
-      const serviceRunning = checkDSAService(dsaConfig.baseUrl);
-      if (!serviceRunning) {
+      // Validate all codes
+      const validation = validateStockCodes(codes);
+      
+      if (validation.invalid.length > 0) {
         return {
-          error: "DSA 服务未运行",
-          hint: "使用 deploy_dsa(action='install') 部署服务"
+          error: '部分股票代码格式错误',
+          invalid: validation.invalid,
+          valid: validation.valid,
+          hint: '格式示例：A 股 600519, 港股 hk00700, 美股 AAPL'
         };
       }
 
-      try {
-        const result = await client.batchAnalyze(codes);
-        return result;
-      } catch (error: any) {
-        return { error: error.message };
+      const serviceRunning = deploy.checkDSAService(dsaConfig.baseUrl);
+      if (!serviceRunning) {
+        return getFriendlyError(ERROR_CODES.SERVICE_NOT_RUNNING);
       }
+
+      return handleApiError(
+        async () => await client.batchAnalyze(validation.valid),
+        { operationName: 'batch_analysis' }
+      );
     },
 
     /**
      * Market review
      */
     market_review: async ({ market }: { market?: 'cn' | 'us' | 'both' }) => {
-      const serviceRunning = checkDSAService(dsaConfig.baseUrl);
+      const serviceRunning = deploy.checkDSAService(dsaConfig.baseUrl);
       if (!serviceRunning) {
-        return {
-          error: "DSA 服务未运行",
-          hint: "使用 deploy_dsa(action='install') 部署服务"
-        };
+        return getFriendlyError(ERROR_CODES.SERVICE_NOT_RUNNING);
       }
 
-      try {
-        const result = await client.marketReview(market || 'cn');
-        return result;
-      } catch (error: any) {
-        return { error: error.message };
-      }
+      return handleApiError(
+        async () => await client.marketReview(market || 'cn'),
+        { operationName: 'market_review' }
+      );
     },
 
     /**
      * Ask stock with strategy
      */
     ask_stock: async ({ question, code }: { question: string; code?: string }) => {
-      const serviceRunning = checkDSAService(dsaConfig.baseUrl);
-      if (!serviceRunning) {
-        return {
-          error: "DSA 服务未运行",
-          hint: "使用 deploy_dsa(action='install') 部署服务"
-        };
+      // Validate code if provided
+      if (code) {
+        const stockInfo = parseStockCode(code);
+        if (!stockInfo.isValid) {
+          return getFriendlyError(ERROR_CODES.INVALID_STOCK_CODE, { code });
+        }
+        code = stockInfo.formattedCode;
       }
 
-      try {
-        const result = await client.askStock(question, code);
-        return result;
-      } catch (error: any) {
-        return { error: error.message };
+      const serviceRunning = deploy.checkDSAService(dsaConfig.baseUrl);
+      if (!serviceRunning) {
+        return getFriendlyError(ERROR_CODES.SERVICE_NOT_RUNNING);
       }
+
+      return handleApiError(
+        async () => await client.askStock(question, code),
+        { operationName: 'ask_stock' }
+      );
     },
 
     /**
-     * Deploy DSA service (Python, auto-detect and install)
+     * Deploy DSA service (uses split functions from deploy module)
      */
     deploy_dsa: async ({ action }: { action: string }) => {
       switch (action) {
         case 'install':
-          try {
-            // Step 1: Check Python
-            if (!checkPython()) {
-              return { 
-                error: 'Python 3.10+ not found',
-                hint: 'Please install Python from https://www.python.org/downloads/',
-                autoInstall: false
-              };
-            }
-
-            // Step 2: Clone repository
-            if (!fs.existsSync(installDir)) {
-              api.logger.info('Cloning repository...');
-              runCommand(`git clone https://github.com/ZhuLinsen/daily_stock_analysis.git ${installDir}`);
-            }
-
-            // Step 3: Ensure dependencies (auto-detect and install)
-            const depResult = ensureDependencies();
-            if (!depResult.success) {
-              return { error: depResult.error };
-            }
-
-            // Step 4: Create .env from example
-            const envExample = path.join(installDir, '.env.example');
-            const envFile = path.join(installDir, '.env');
-            if (fs.existsSync(envExample) && !fs.existsSync(envFile)) {
-              fs.copyFileSync(envExample, envFile);
-              api.logger.info(`Created .env at ${envFile}`);
-            }
-
-            return {
-              status: 'success',
-              message: 'DSA 服务已安装（Python 模式，虚拟环境）',
-              autoInstall: true,
-              virtualEnv: true,
-              nextSteps: [
-                `1. 编辑 ${envFile} 配置：`,
-                '   - STOCK_LIST=600519,hk00700,AAPL (你的股票代码)',
-                '   - GEMINI_API_KEY=your_key (至少配置一个 AI API Key)',
-                '2. 运行 deploy_dsa(action="start") 启动服务',
-                '3. 访问 http://localhost:8009 使用 Web 界面'
-              ],
-              installDir: installDir,
-              port: DEFAULT_CONFIG.dsaPort
-            };
-          } catch (error: any) {
-            return { error: error.message };
-          }
-
+          api.logger.info('Installing DSA service...');
+          return deploy.installDSA(api, config);
+        
         case 'start':
-          try {
-            // Auto-install if needed
-            if (!fs.existsSync(venvDir)) {
-              api.logger.info('Virtual environment not found, auto-installing...');
-              const installResult = await this.deploy_dsa({ action: 'install' });
-              if ('error' in installResult) {
-                return installResult;
-              }
-            }
-
-            if (!fs.existsSync(python)) {
-              return {
-                error: '虚拟环境未找到',
-                hint: '请先运行 deploy_dsa(action="install") 安装服务'
-              };
-            }
-
-            const running = checkDSAService(dsaConfig.baseUrl);
-            if (running) {
-              return {
-                status: 'already_running',
-                message: 'DSA 服务已在运行',
-                url: dsaConfig.baseUrl
-              };
-            }
-
-            api.logger.info('Starting DSA service (Python)...');
-            
-            // Start in background
-            const child = spawn(python, ['main.py'], {
-              cwd: installDir,
-              stdio: 'ignore',
-              detached: true,
-              env: { ...process.env, PYTHONUNBUFFERED: '1' }
-            });
-
-            child.unref();
-
-            // Wait for service to start
-            setTimeout(() => {
-              if (checkDSAService(dsaConfig.baseUrl)) {
-                api.logger.info('DSA service started successfully!');
-              }
-            }, 5000);
-
-            return {
-              status: 'starting',
-              message: 'DSA 服务启动中...',
-              url: dsaConfig.baseUrl,
-              port: DEFAULT_CONFIG.dsaPort,
-              pid: child.pid,
-              autoInstall: true
-            };
-          } catch (error: any) {
-            return { error: error.message };
-          }
-
+          api.logger.info('Starting DSA service...');
+          return deploy.startDSA(api, config);
+        
         case 'stop':
-          try {
-            if (process.platform === 'win32') {
-              runCommand('taskkill /F /IM python.exe /FI "WINDOWTITLE eq *daily_stock_analysis*"');
-            } else {
-              runCommand("pkill -f 'python.*main.py'");
-            }
-            return {
-              status: 'success',
-              message: 'DSA 服务已停止'
-            };
-          } catch (error: any) {
-            return { error: error.message };
-          }
-
+          api.logger.info('Stopping DSA service...');
+          return deploy.stopDSA(api);
+        
         case 'status':
-          try {
-            const running = checkDSAService(dsaConfig.baseUrl);
-            const venvExists = fs.existsSync(venvDir);
-            const envExists = fs.existsSync(path.join(installDir, '.env'));
-            const pythonExists = fs.existsSync(python);
-            const requirementsFile = fs.existsSync(path.join(installDir, 'requirements.txt'));
-            
-            return {
-              status: running ? 'running' : 'stopped',
-              apiHealth: running ? 'healthy' : 'unhealthy',
-              installed: venvExists,
-              configured: envExists,
-              pythonReady: pythonExists,
-              requirementsReady: requirementsFile,
-              installDir: installDir,
-              url: dsaConfig.baseUrl,
-              port: DEFAULT_CONFIG.dsaPort,
-              autoInstallReady: venvExists && pythonExists,
-              message: venvExists && pythonExists ? '✅ 已就绪，可以启动' : '⚠️ 需要先安装'
-            };
-          } catch (error: any) {
-            return { error: error.message };
-          }
-
+          return deploy.statusDSA(api, config);
+        
         case 'uninstall':
-          try {
-            try {
-              if (process.platform === 'win32') {
-                runCommand('taskkill /F /IM python.exe /FI "WINDOWTITLE eq *daily_stock_analysis*"');
-              } else {
-                runCommand("pkill -f 'python.*main.py'");
-              }
-            } catch {}
-            
-            fs.rmSync(installDir, { recursive: true, force: true });
-            return {
-              status: 'success',
-              message: 'DSA 服务已卸载'
-            };
-          } catch (error: any) {
-            return { error: error.message };
-          }
-
+          api.logger.info('Uninstalling DSA service...');
+          return deploy.uninstallDSA(api, config);
+        
         default:
-          return { error: `Unknown action: ${action}` };
+          return createError({
+            message: `未知操作：${action}`,
+            code: ERROR_CODES.UNKNOWN
+          });
       }
     },
 
@@ -421,24 +183,28 @@ function createTools(api: OpenClawPluginApi, config: PluginConfig) {
      * Check plugin version and service status
      */
     dsa_version: async () => {
-      const serviceRunning = checkDSAService(dsaConfig.baseUrl);
+      const serviceRunning = deploy.checkDSAService(dsaConfig.baseUrl);
       let serviceVersion = 'unknown';
       
       if (serviceRunning) {
-        try {
-          const health = await client.healthCheck();
-          serviceVersion = health.version || 'running';
-        } catch {
-          serviceVersion = 'running';
+        const result = await handleApiError(
+          async () => await client.healthCheck(),
+          { operationName: 'healthCheck' }
+        );
+        
+        if ('status' in result) {
+          serviceVersion = result.version || 'running';
         }
       }
 
+      const venvDir = path.join(installDir, CONFIG.VENV_DIR);
+      
       return {
-        plugin: '1.0.0',
+        plugin: CONFIG.VERSION,
         service: serviceVersion,
         serviceStatus: serviceRunning ? 'running' : 'stopped',
         serviceUrl: dsaConfig.baseUrl,
-        port: DEFAULT_CONFIG.dsaPort,
+        port: config.dsaPort || CONFIG.DEFAULT_PORT,
         virtualEnv: fs.existsSync(venvDir)
       };
     }
@@ -450,46 +216,77 @@ function createTools(api: OpenClawPluginApi, config: PluginConfig) {
 // ============================================================================
 
 export default definePluginEntry((api: OpenClawPluginApi) => {
-  const config: PluginConfig = { ...DEFAULT_CONFIG, ...api.pluginConfig };
+  const userConfig = api.pluginConfig || {};
+  const config = mergeConfig(userConfig);
+  
+  // Validate configuration
+  const validation = validateConfig(config);
+  if (!validation.valid) {
+    api.logger.error(`Invalid configuration: ${validation.errors.join(', ')}`);
+    return;
+  }
   
   if (!config.enabled) {
-    api.logger.info(`${PLUGIN_NAME} is disabled`);
+    api.logger.info(`${CONFIG.PLUGIN_NAME} is disabled`);
     return;
   }
 
   const tools = createTools(api, config);
 
-  // Register tools
+  // Register tools with descriptions
   api.registerTool('stock_analysis', tools.stock_analysis, {
-    description: '分析单只股票，返回 AI 决策仪表盘',
+    description: '分析单只股票，返回 AI 决策仪表盘（买卖点位 + 检查清单）',
     parameters: Type.Object({
-      code: Type.String({ description: '股票代码，如 600519, AAPL' })
+      code: Type.String({ 
+        description: '股票代码，如 600519 (A 股), hk00700 (港股), AAPL (美股)',
+        minLength: 4,
+        maxLength: 10
+      })
     })
   });
 
   api.registerTool('batch_analysis', tools.batch_analysis, {
     description: '批量分析多只股票',
     parameters: Type.Object({
-      codes: Type.Array(Type.String(), { description: '股票代码列表' })
+      codes: Type.Array(
+        Type.String({ 
+          description: '股票代码',
+          minLength: 4,
+          maxLength: 10
+        }),
+        { 
+          description: '股票代码列表，如 ["600519", "hk00700", "AAPL"]',
+          minItems: 1,
+          maxItems: 20
+        }
+      )
     })
   });
 
   api.registerTool('market_review', tools.market_review, {
-    description: '大盘复盘，查看市场概览',
+    description: '大盘复盘，查看市场概览和板块涨跌',
     parameters: Type.Object({
       market: Type.Optional(Type.Union([
-        Type.Literal('cn'),
-        Type.Literal('us'),
-        Type.Literal('both')
-      ], { description: '市场：cn(A 股), us(美股), both(两者)' }))
+        Type.Literal('cn', { description: 'A 股市场' }),
+        Type.Literal('us', { description: '美股市场' }),
+        Type.Literal('both', { description: 'A 股 + 美股' })
+      ]))
     })
   });
 
   api.registerTool('ask_stock', tools.ask_stock, {
-    description: 'Agent 策略问股，多轮对话分析',
+    description: 'Agent 策略问股，多轮对话分析（支持缠论/均线/波浪等 11 种策略）',
     parameters: Type.Object({
-      question: Type.String({ description: '问题，如"用缠论分析 600519"' }),
-      code: Type.Optional(Type.String({ description: '股票代码' }))
+      question: Type.String({ 
+        description: '问题，如"用缠论分析 600519"',
+        minLength: 1,
+        maxLength: 1000
+      }),
+      code: Type.Optional(Type.String({ 
+        description: '股票代码（可选）',
+        minLength: 4,
+        maxLength: 10
+      }))
     })
   });
 
@@ -497,12 +294,12 @@ export default definePluginEntry((api: OpenClawPluginApi) => {
     description: '部署 Daily Stock Analysis 服务（Python 虚拟环境，开箱即用）',
     parameters: Type.Object({
       action: Type.Union([
-        Type.Literal('install'),
-        Type.Literal('start'),
-        Type.Literal('stop'),
-        Type.Literal('status'),
-        Type.Literal('uninstall')
-      ], { description: '操作类型' })
+        Type.Literal('install', { description: '安装服务' }),
+        Type.Literal('start', { description: '启动服务' }),
+        Type.Literal('stop', { description: '停止服务' }),
+        Type.Literal('status', { description: '查看状态' }),
+        Type.Literal('uninstall', { description: '卸载服务' })
+      ])
     })
   });
 
@@ -511,18 +308,22 @@ export default definePluginEntry((api: OpenClawPluginApi) => {
     parameters: Type.Object({})
   });
 
-  api.logger.info(`${PLUGIN_NAME} loaded with ${Object.keys(tools).length} tools`);
-  api.logger.info(`DSA Port: ${DEFAULT_CONFIG.dsaPort}`);
+  // Log startup info with appropriate levels
+  api.logger.info(`${CONFIG.PLUGIN_NAME} v${CONFIG.VERSION} loaded`);
+  api.logger.info(`Port: ${config.dsaPort || CONFIG.DEFAULT_PORT}`);
+  api.logger.info(`Auto-detect: ${config.autoDetectStock ? 'Enabled' : 'Disabled'}`);
   api.logger.info(`Virtual Env Auto-Install: Enabled`);
 
-  // Auto-detection hook (optional)
+  // Auto-detection hook with weighted keywords
   if (config.autoDetectStock) {
     api.onMessage(async (message) => {
       const prompt = message.content;
       const relevantTools = detectRelevantTools(prompt);
       
       if (relevantTools.length > 0) {
-        api.logger.debug(`Detected stock-related tools: ${relevantTools.join(', ')}`);
+        const scores = getDetectionScores(prompt);
+        api.logger.debug(`Detected stock tools: ${relevantTools.join(', ')}`);
+        api.logger.debug(`Detection scores: ${JSON.stringify(scores)}`);
       }
     });
   }

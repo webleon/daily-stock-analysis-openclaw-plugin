@@ -1,7 +1,7 @@
 {
   "name": "Daily Stock Analysis OpenClaw Plugin",
   "version": "1.0.0",
-  "description": "AI-powered stock analysis plugin with Docker deployment - supports A/H/US markets",
+  "description": "AI-powered stock analysis plugin with Python deployment (no Docker) - supports A/H/US markets",
   "author": "WebLeOn",
   "license": "MIT",
   "homepage": "https://github.com/webleon/daily-stock-analysis-openclaw-plugin",
@@ -14,7 +14,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "股票代码，如 600519, hk00700, AAPL"
+            "description": "股票代码，如 600519 (A 股), hk00700 (港股), AAPL (美股)"
           }
         },
         "required": ["code"]
@@ -69,7 +69,7 @@
     },
     {
       "name": "deploy_dsa",
-      "description": "部署 Daily Stock Analysis 服务（Docker）",
+      "description": "部署 Daily Stock Analysis 服务（Python 虚拟环境，开箱即用）",
       "parameters": {
         "type": "object",
         "properties": {
@@ -93,7 +93,7 @@
     "dsaBaseUrl": "http://localhost:8009",
     "dsaPort": 8009,
     "autoDeploy": false,
-    "dockerInstallDir": "~/.openclaw/external-services/daily_stock_analysis",
+    "installDir": "~/.openclaw/external-services/daily_stock_analysis",
     "autoDetectStock": true
   }
 }

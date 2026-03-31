@@ -1,10 +1,14 @@
 /**
  * Daily Stock Analysis API Client
+ * With timeout handling and retry logic
  */
+
+import { CONFIG } from './config.js';
 
 export interface DSAConfig {
   baseUrl: string;
   apiKey?: string;
+  timeout?: number;  // milliseconds
 }
 
 export interface StockAnalysis {
@@ -52,17 +56,35 @@ export class DSAClient {
       headers['Authorization'] = `Bearer ${this.config.apiKey}`;
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    // Timeout handling with AbortController
+    const controller = new AbortController();
+    const timeout = this.config.timeout || CONFIG.API_TIMEOUT;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    if (!response.ok) {
-      throw new Error(`DSA API Error: ${response.status} ${response.statusText}`);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`DSA API Error: ${response.status} ${response.statusText}`);
+      }
+
+      return response.json();
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeout}ms`);
+      }
+      
+      throw error;
     }
-
-    return response.json();
   }
 
   /**
@@ -108,7 +130,26 @@ export class DSAClient {
    */
   async healthCheck(): Promise<{ status: string; version?: string }> {
     const url = `${this.config.baseUrl}/api/health`;
-    const response = await fetch(url);
-    return response.json();
+    const controller = new AbortController();
+    const timeout = this.config.timeout || CONFIG.API_TIMEOUT;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      return response.json();
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        throw new Error(`Health check timeout after ${timeout}ms`);
+      }
+      
+      throw error;
+    }
   }
 }
