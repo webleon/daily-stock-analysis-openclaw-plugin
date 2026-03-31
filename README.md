@@ -91,11 +91,23 @@ Should return:
 
 ## Usage Examples
 
-### Analyze Single Stock
+### Important: Trigger DSA Tools
 
-**User:** 分析贵州茅台
+**DSA tools only trigger when you explicitly mention DSA:**
 
-**Plugin:** Automatically calls `stock_analysis(code="600519")`
+✅ **Will trigger DSA:**
+- "用 DSA 分析贵州茅台"
+- "DSA 分析茅台"
+- "用 Daily Stock Analysis 分析"
+- "股票分析插件 分析茅台"
+
+❌ **Won't trigger DSA (handled by Superpowers):**
+- "分析贵州茅台"
+- "看看茅台走势"
+- "写代码分析股票"
+- "测试股票策略"
+
+This avoids conflicts with Superpowers skills!
 
 **Response:**
 ```
