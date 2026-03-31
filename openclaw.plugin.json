@@ -1,10 +1,29 @@
 {
+  "id": "daily-stock-analysis-openclaw-plugin",
   "name": "Daily Stock Analysis OpenClaw Plugin",
   "version": "1.0.0",
   "description": "AI-powered stock analysis plugin with Python deployment (no Docker) - supports A/H/US markets",
   "author": "WebLeOn",
   "license": "MIT",
   "homepage": "https://github.com/webleon/daily-stock-analysis-openclaw-plugin",
+  "kind": "extension",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true
+      },
+      "dsaPort": {
+        "type": "number",
+        "default": 8009
+      },
+      "autoDetectStock": {
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
   "tools": [
     {
       "name": "stock_analysis",

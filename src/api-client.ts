@@ -1,46 +1,11 @@
 /**
- * Daily Stock Analysis API Client
- * With timeout handling and retry logic
+ * Simple DSA API Client
+ * No timeout handling - let the server control timeouts
  */
-
-import { CONFIG } from './config.js';
 
 export interface DSAConfig {
   baseUrl: string;
   apiKey?: string;
-  timeout?: number;  // milliseconds
-}
-
-export interface StockAnalysis {
-  code: string;
-  name: string;
-  conclusion: string;
-  buyPrice?: number;
-  stopLossPrice?: number;
-  targetPrice?: number;
-  checklist: Array<{ item: string; status: '满足' | '注意' | '不满足' }>;
-  riskAlerts?: string[];
-  opportunities?: string[];
-}
-
-export interface MarketReview {
-  date: string;
-  indices: Array<{ name: string; value: number; change: number }>;
-  summary: {
-    up: number;
-    down: number;
-    limitUp: number;
-    limitDown: number;
-  };
-  sectors: {
-    top: string[];
-    bottom: string[];
-  };
-}
-
-export interface ChatResponse {
-  answer: string;
-  thought?: string;
 }
 
 export class DSAClient {
@@ -48,108 +13,49 @@ export class DSAClient {
 
   private async request<T>(endpoint: string, body?: any): Promise<T> {
     const url = `${this.config.baseUrl}${endpoint}`;
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
 
     if (this.config.apiKey) {
       headers['Authorization'] = `Bearer ${this.config.apiKey}`;
     }
 
-    // Timeout handling with AbortController
-    const controller = new AbortController();
-    const timeout = this.config.timeout || CONFIG.API_TIMEOUT;
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`DSA API Error: ${response.status} ${response.statusText}`);
-      }
-
-      return response.json();
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      
-      if (error.name === 'AbortError') {
-        throw new Error(`Request timeout after ${timeout}ms`);
-      }
-      
-      throw error;
+    if (!response.ok) {
+      throw new Error(`DSA API Error: ${response.status} ${response.statusText}`);
     }
+
+    return response.json();
   }
 
-  /**
-   * Analyze single stock
-   */
-  async analyzeStock(code: string): Promise<StockAnalysis> {
+  async analyzeStock(code: string) {
     return this.request('/api/v1/analysis/analyze', {
       stock_codes: [code],
       async_mode: false,
     });
   }
 
-  /**
-   * Batch analyze multiple stocks
-   */
-  async batchAnalyze(codes: string[]): Promise<{ task_id?: string; status: string }> {
+  async batchAnalyze(codes: string[]) {
     return this.request('/api/v1/analysis/analyze', {
       stock_codes: codes,
       async_mode: true,
     });
   }
 
-  /**
-   * Market review
-   */
-  async marketReview(market: 'cn' | 'us' | 'both' = 'cn'): Promise<MarketReview> {
+  async marketReview(market: 'cn' | 'us' | 'both' = 'cn') {
     return this.request('/api/v1/market/review', { market });
   }
 
-  /**
-   * Ask stock with strategy
-   */
-  async askStock(question: string, code?: string): Promise<ChatResponse> {
-    return this.request('/api/v1/chat/ask', {
-      question,
-      code,
-      stream: false,
-    });
+  async askStock(question: string, code?: string) {
+    return this.request('/api/v1/chat/ask', { question, code, stream: false });
   }
 
-  /**
-   * Health check
-   */
-  async healthCheck(): Promise<{ status: string; version?: string }> {
-    const url = `${this.config.baseUrl}/api/health`;
-    const controller = new AbortController();
-    const timeout = this.config.timeout || CONFIG.API_TIMEOUT;
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      return response.json();
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      
-      if (error.name === 'AbortError') {
-        throw new Error(`Health check timeout after ${timeout}ms`);
-      }
-      
-      throw error;
-    }
+  async healthCheck() {
+    const response = await fetch(`${this.config.baseUrl}/api/health`);
+    return response.json();
   }
 }
