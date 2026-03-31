@@ -1,0 +1,98 @@
+{
+  "name": "Daily Stock Analysis OpenClaw Plugin",
+  "version": "1.0.0",
+  "description": "AI-powered stock analysis plugin with Docker deployment - supports A/H/US markets",
+  "author": "WebLeOn",
+  "license": "MIT",
+  "homepage": "https://github.com/webleon/daily-stock-analysis-openclaw-plugin",
+  "tools": [
+    {
+      "name": "stock_analysis",
+      "description": "分析单只股票，返回 AI 决策仪表盘（买卖点位 + 检查清单）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "股票代码，如 600519, hk00700, AAPL"
+          }
+        },
+        "required": ["code"]
+      }
+    },
+    {
+      "name": "batch_analysis",
+      "description": "批量分析多只股票",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "codes": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "股票代码列表"
+          }
+        },
+        "required": ["codes"]
+      }
+    },
+    {
+      "name": "market_review",
+      "description": "大盘复盘，查看市场概览和板块涨跌",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "market": {
+            "type": "string",
+            "enum": ["cn", "us", "both"],
+            "description": "市场：cn(A 股), us(美股), both(两者)"
+          }
+        }
+      }
+    },
+    {
+      "name": "ask_stock",
+      "description": "Agent 策略问股，多轮对话分析（支持缠论/均线/波浪等 11 种策略）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "问题，如'用缠论分析 600519'"
+          },
+          "code": {
+            "type": "string",
+            "description": "股票代码"
+          }
+        },
+        "required": ["question"]
+      }
+    },
+    {
+      "name": "deploy_dsa",
+      "description": "部署 Daily Stock Analysis 服务（Docker）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["install", "start", "stop", "status", "uninstall"],
+            "description": "操作类型"
+          }
+        },
+        "required": ["action"]
+      }
+    },
+    {
+      "name": "dsa_version",
+      "description": "检查插件版本和服务状态",
+      "parameters": {}
+    }
+  ],
+  "config": {
+    "enabled": true,
+    "dsaBaseUrl": "http://localhost:8000",
+    "autoDeploy": false,
+    "dockerInstallDir": "~/.openclaw/external-services/daily_stock_analysis",
+    "autoDetectStock": true
+  }
+}

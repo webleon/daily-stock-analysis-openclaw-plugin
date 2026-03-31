@@ -1,0 +1,49 @@
+{
+  "name": "@webleon/daily-stock-analysis-openclaw-plugin",
+  "version": "1.0.0",
+  "description": "Daily Stock Analysis plugin for OpenClaw - AI-powered stock analysis with Docker deployment",
+  "type": "module",
+  "main": "index.ts",
+  "bin": {
+    "dsa-deploy": "./install.js"
+  },
+  "scripts": {
+    "install": "node install.js",
+    "postinstall": "echo 'Daily Stock Analysis OpenClaw Plugin installed! Run: openclaw gateway restart'"
+  },
+  "keywords": [
+    "openclaw",
+    "stock-analysis",
+    "daily-stock-analysis",
+    "AI",
+    "finance",
+    "trading",
+    "agent",
+    "productivity"
+  ],
+  "author": "WebLeOn",
+  "license": "MIT",
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "setupEntry": "./install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webleon/daily-stock-analysis-openclaw-plugin.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "index.ts",
+    "install.js",
+    "openclaw.plugin.json",
+    "package.json",
+    "README.md",
+    "docker/",
+    "src/"
+  ],
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  }
+}
