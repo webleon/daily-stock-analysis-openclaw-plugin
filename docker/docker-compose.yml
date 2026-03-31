@@ -1,3 +1,6 @@
+# Docker Compose - Optional deployment method
+# For Python deployment (recommended for local use), see README.md
+
 version: '3.8'
 
 services:
@@ -26,3 +29,6 @@ services:
 networks:
   dsa-network:
     driver: bridge
+
+# Note: For local development, Python deployment is recommended
+# Run: node install.js --install-python

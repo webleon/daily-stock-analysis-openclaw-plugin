@@ -204,18 +204,43 @@ function createTools(config: PluginConfig) {
     },
 
     /**
-     * Deploy DSA service
+     * Deploy DSA service (Python, no Docker required)
      */
     deploy_dsa: async ({ action }: { action: string }) => {
       const installDir = expandHome(config.dockerInstallDir || DEFAULT_CONFIG.dockerInstallDir!);
+      const venvDir = path.join(installDir, 'venv');
+      const python = process.platform === 'win32' ? path.join(venvDir, 'Scripts', 'python.exe') : path.join(venvDir, 'bin', 'python');
+      const pip = process.platform === 'win32' ? path.join(venvDir, 'Scripts', 'pip.exe') : path.join(venvDir, 'bin', 'pip');
 
       switch (action) {
         case 'install':
           try {
+            // Check Python
+            try {
+              execSync('python3 --version', { stdio: 'pipe' });
+            } catch {
+              return { 
+                error: 'Python 3.10+ not found',
+                hint: 'Please install Python from https://www.python.org/downloads/'
+              };
+            }
+
             // Clone repository
             if (!fs.existsSync(installDir)) {
+              console.log('📦 Cloning repository...');
               runCommand(`git clone https://github.com/ZhuLinsen/daily_stock_analysis.git ${installDir}`);
             }
+
+            // Create virtual environment
+            if (!fs.existsSync(venvDir)) {
+              console.log('🐍 Creating virtual environment...');
+              runCommand('python3 -m venv venv', installDir);
+            }
+
+            // Install dependencies
+            console.log('📦 Installing dependencies (this may take a few minutes)...');
+            runCommand(`${pip} install --upgrade pip`, installDir);
+            runCommand(`${pip} install -r requirements.txt`, installDir);
 
             // Create .env from example
             const envExample = path.join(installDir, '.env.example');
@@ -226,12 +251,16 @@ function createTools(config: PluginConfig) {
 
             return {
               status: 'success',
-              message: 'DSA 服务已安装',
+              message: 'DSA 服务已安装（Python 模式）',
               nextSteps: [
-                `1. 编辑 ${installDir}/.env 配置股票代码和 API Key`,
+                `1. 编辑 ${envFile} 配置：`,
+                '   - STOCK_LIST=600519,hk00700,AAPL (你的股票代码)',
+                '   - GEMINI_API_KEY=your_key (至少配置一个 AI API Key)',
                 '2. 运行 deploy_dsa(action="start") 启动服务',
                 '3. 访问 http://localhost:8000 使用 Web 界面'
-              ]
+              ],
+              installDir: installDir,
+              python: python
             };
           } catch (error: any) {
             return { error: error.message };
@@ -239,11 +268,48 @@ function createTools(config: PluginConfig) {
 
         case 'start':
           try {
-            runCommand('docker-compose up -d', installDir);
+            if (!fs.existsSync(python)) {
+              return {
+                error: '虚拟环境未找到',
+                hint: '请先运行 deploy_dsa(action="install") 安装服务'
+              };
+            }
+
+            const running = checkDSAService(dsaConfig.baseUrl);
+            if (running) {
+              return {
+                status: 'already_running',
+                message: 'DSA 服务已在运行',
+                url: dsaConfig.baseUrl
+              };
+            }
+
+            console.log('🚀 Starting DSA service (Python)...');
+            console.log('💡 服务将在后台运行，访问 http://localhost:8000');
+            console.log('⚠️  按 Ctrl+C 可停止服务');
+            
+            // Start in background
+            const { spawn } = await import('child_process');
+            const child = spawn(python, ['main.py'], {
+              cwd: installDir,
+              stdio: 'inherit',
+              detached: true
+            });
+
+            child.unref();
+
+            setTimeout(() => {
+              if (checkDSAService(dsaConfig.baseUrl)) {
+                console.log('✅ 服务启动成功！');
+                console.log('🌐 访问：http://localhost:8000');
+              }
+            }, 5000);
+
             return {
-              status: 'success',
-              message: 'DSA 服务已启动',
-              url: 'http://localhost:8000'
+              status: 'starting',
+              message: 'DSA 服务启动中...',
+              url: 'http://localhost:8000',
+              pid: child.pid
             };
           } catch (error: any) {
             return { error: error.message };
@@ -251,7 +317,12 @@ function createTools(config: PluginConfig) {
 
         case 'stop':
           try {
-            runCommand('docker-compose stop', installDir);
+            // Find and kill python process
+            if (process.platform === 'win32') {
+              runCommand('taskkill /F /IM python.exe /FI "WINDOWTITLE eq *daily_stock_analysis*"');
+            } else {
+              runCommand("pkill -f 'python.*main.py'");
+            }
             return {
               status: 'success',
               message: 'DSA 服务已停止'
@@ -262,12 +333,17 @@ function createTools(config: PluginConfig) {
 
         case 'status':
           try {
-            const status = runCommand('docker-compose ps', installDir);
             const running = checkDSAService(dsaConfig.baseUrl);
+            const venvExists = fs.existsSync(venvDir);
+            const envExists = fs.existsSync(path.join(installDir, '.env'));
+            
             return {
               status: running ? 'running' : 'stopped',
-              dockerStatus: status.trim(),
-              apiHealth: running ? 'healthy' : 'unhealthy'
+              apiHealth: running ? 'healthy' : 'unhealthy',
+              installed: venvExists,
+              configured: envExists,
+              installDir: installDir,
+              url: dsaConfig.baseUrl
             };
           } catch (error: any) {
             return { error: error.message };
@@ -275,7 +351,15 @@ function createTools(config: PluginConfig) {
 
         case 'uninstall':
           try {
-            runCommand('docker-compose down', installDir);
+            // Stop service first
+            try {
+              if (process.platform === 'win32') {
+                runCommand('taskkill /F /IM python.exe /FI "WINDOWTITLE eq *daily_stock_analysis*"');
+              } else {
+                runCommand("pkill -f 'python.*main.py'");
+              }
+            } catch {}
+            
             fs.rmSync(installDir, { recursive: true, force: true });
             return {
               status: 'success',

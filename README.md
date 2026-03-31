@@ -3,7 +3,8 @@
 🤖 AI-powered stock analysis plugin for OpenClaw - bridge to [Daily Stock Analysis](https://github.com/ZhuLinsen/daily_stock_analysis)
 
 **Features:**
-- ✅ **One-command Docker deployment** - Automatic setup with `deploy_dsa`
+- ✅ **Python deployment** - No Docker required!
+- ✅ **One-command setup** - Automatic virtual environment and dependencies
 - ✅ **A/H/US Markets** - Support for Chinese A-shares, HK stocks, and US stocks
 - ✅ **AI Decision Dashboard** - Buy/sell points + checklist + risk alerts
 - ✅ **Agent Q&A** - 11 built-in strategies (Chan Theory, MA, Elliott Wave, etc.)
@@ -20,7 +21,7 @@ openclaw plugins install @webleon/daily-stock-analysis-openclaw-plugin
 openclaw gateway restart
 ```
 
-### 2. Deploy DSA Service
+### 2. Deploy DSA Service (Python, No Docker)
 
 **Option A: Using OpenClaw tool**
 ```
@@ -30,7 +31,7 @@ deploy_dsa(action="install")
 **Option B: Using install script**
 ```bash
 cd ~/.openclaw/extensions/daily-stock-analysis-openclaw-plugin
-node install.js --install
+node install.js --install-python
 ```
 
 ### 3. Configure
@@ -51,13 +52,19 @@ TELEGRAM_CHAT_ID=your_chat_id
 
 ### 4. Start Service
 
+**Option A: Using OpenClaw tool**
 ```
 deploy_dsa(action="start")
 ```
 
-Or:
+**Option B: Using install script**
 ```bash
-node install.js --start
+node install.js --start-python
+```
+
+**Option C: With Web UI**
+```bash
+node install.js --start-webui
 ```
 
 ### 5. Verify
@@ -84,7 +91,7 @@ Should return:
 | `batch_analysis` | Analyze multiple stocks | `batch_analysis(codes=["600519", "AAPL"])` |
 | `market_review` | Market overview and sector analysis | `market_review(market="cn")` |
 | `ask_stock` | Agent strategy Q&A | `ask_stock(question="用缠论分析 600519")` |
-| `deploy_dsa` | Deploy/manage DSA service | `deploy_dsa(action="install")` |
+| `deploy_dsa` | Deploy/manage DSA service (Python) | `deploy_dsa(action="install")` |
 | `dsa_version` | Check plugin and service status | `dsa_version()` |
 
 ## Usage Examples
@@ -99,7 +106,7 @@ Should return:
 ```
 📊 贵州茅台 (600519)
 
-✨ 核心结论: 观望 | 评分 65 | 趋势向好但需消化获利盘
+✨ 核心结论：观望 | 评分 65 | 趋势向好但需消化获利盘
 
 🎯 操作建议:
 - 买入价：1680-1700 元
@@ -158,6 +165,18 @@ Should return:
 deploy_dsa(action="status")
 ```
 
+Returns:
+```json
+{
+  "status": "running",
+  "apiHealth": "healthy",
+  "installed": true,
+  "configured": true,
+  "installDir": "/Users/xxx/.openclaw/external-services/daily_stock_analysis",
+  "url": "http://localhost:8000"
+}
+```
+
 ### Start/Stop
 
 ```
@@ -169,6 +188,48 @@ deploy_dsa(action="stop")
 
 ```
 deploy_dsa(action="uninstall")
+```
+
+## Installation Methods
+
+### Method 1: Python (Recommended for Local)
+
+**Pros:**
+- ✅ No Docker required
+- ✅ Lightweight and fast
+- ✅ Easy to debug and modify
+
+**Requirements:**
+- Python 3.10+
+- pip
+- git
+
+**Install:**
+```bash
+node install.js --install-python
+```
+
+### Method 2: Docker (Optional)
+
+**Pros:**
+- ✅ Complete environment isolation
+- ✅ Production-ready
+
+**Requirements:**
+- Docker Desktop
+- Docker Compose
+
+**Install:**
+```bash
+node install.js --install-docker
+```
+
+### Method 3: Auto-detect
+
+Automatically chooses Python or Docker based on availability.
+
+```bash
+node install.js --install
 ```
 
 ## Configuration
@@ -183,7 +244,6 @@ Plugin config in `~/.openclaw/openclaw.json`:
         "config": {
           "enabled": true,
           "dsaBaseUrl": "http://localhost:8000",
-          "autoDeploy": false,
           "autoDetectStock": true
         }
       }
@@ -201,10 +261,30 @@ Plugin config in `~/.openclaw/openclaw.json`:
 node install.js --status
 
 # Start service
-node install.js --start
+node install.js --start-python
 
-# View logs
-docker logs daily_stock_analysis
+# View logs (check install directory)
+cd ~/.openclaw/external-services/daily_stock_analysis
+cat logs/*.log
+```
+
+### Python Not Found
+
+```bash
+# Check Python version
+python3 --version
+
+# Install Python 3.10+
+# macOS: brew install python@3.10
+# Windows: Download from https://www.python.org/downloads/
+```
+
+### Dependencies Installation Failed
+
+```bash
+cd ~/.openclaw/external-services/daily_stock_analysis
+venv/bin/pip install --upgrade pip
+venv/bin/pip install -r requirements.txt
 ```
 
 ### API Connection Failed
@@ -219,7 +299,8 @@ See [LLM Configuration Guide](https://github.com/ZhuLinsen/daily_stock_analysis/
 
 ## Requirements
 
-- **Docker** and **Docker Compose**
+- **Python 3.10+** (for Python deployment)
+- **Docker** (optional, for Docker deployment)
 - **OpenClaw** v1.0+
 - **AI API Key** (Gemini/Claude/OpenAI/etc.)
 
@@ -236,3 +317,7 @@ WebLeOn (@webleon)
 - [Daily Stock Analysis](https://github.com/ZhuLinsen/daily_stock_analysis) - Original project
 - [OpenClaw](https://github.com/openclaw/openclaw) - Plugin platform
 - [Issue Tracker](https://github.com/webleon/daily-stock-analysis-openclaw-plugin/issues)
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md)
