@@ -41,6 +41,53 @@ export default definePluginEntry((api) => {
     }
   }
 
+  // Check installation status
+  function checkInstallation(): {
+    installed: boolean;
+    pythonOk: boolean;
+    venvOk: boolean;
+    depsOk: boolean;
+    message: string;
+  } {
+    const pythonCheck = checkPythonVersion();
+    const pythonOk = pythonCheck.installed && pythonCheck.meetsRequirement;
+    
+    const venvPath = path.join(INSTALL_DIR, 'venv');
+    const venvOk = fs.existsSync(venvPath);
+    
+    const pythonPath = process.platform === 'win32'
+      ? path.join(venvPath, 'Scripts', 'python.exe')
+      : path.join(venvPath, 'bin', 'python');
+    
+    let depsOk = false;
+    if (venvOk && fs.existsSync(pythonPath)) {
+      try {
+        execSync(`${pythonPath} -c "import fastapi, uvicorn"`, {
+          cwd: INSTALL_DIR,
+          stdio: 'pipe'
+        });
+        depsOk = true;
+      } catch {
+        depsOk = false;
+      }
+    }
+    
+    const installed = pythonOk && venvOk && depsOk;
+    
+    let message = '';
+    if (!pythonOk) {
+      message = 'Python 未安装或版本过低（需要 3.10+）';
+    } else if (!venvOk) {
+      message = '虚拟环境未创建';
+    } else if (!depsOk) {
+      message = '依赖未安装';
+    } else {
+      message = '已安装';
+    }
+    
+    return { installed, pythonOk, venvOk, depsOk, message };
+  }
+
   // Deploy function with step-by-step progress
   function deploy(action: string): any {
     const python = getPython();
@@ -268,11 +315,49 @@ export default definePluginEntry((api) => {
     }
   }
 
-  // Register tools
+  // Register tools with auto-install detection
   api.registerTool('stock_analysis', async ({ code }) => {
-    if (!checkService()) {
-      return { error: '服务未运行', hint: 'deploy_dsa(action="start")' };
+    const serviceRunning = checkService();
+    
+    if (!serviceRunning) {
+      // Check installation status
+      const installStatus = checkInstallation();
+      
+      if (!installStatus.installed) {
+        // Not installed - offer auto-install
+        return {
+          error: 'DSA 服务未安装',
+          status: 'not_installed',
+          autoInstall: true,
+          message: '🔍 检测到您首次使用 DSA 服务，是否现在安装？',
+          details: {
+            estimatedSize: '~500MB',
+            estimatedTime: '2-5 分钟',
+            steps: [
+              '检测 Python 版本',
+              '克隆仓库',
+              '创建虚拟环境',
+              '安装依赖',
+              '创建配置文件'
+            ]
+          },
+          installCommand: 'deploy_dsa(action="install")',
+          hint: '运行 deploy_dsa(action="install") 开始安装'
+        };
+      } else {
+        // Installed but not running - offer to start
+        return {
+          error: 'DSA 服务未运行',
+          status: 'not_running',
+          autoStart: true,
+          message: 'DSA 服务已安装但未启动，是否现在启动？',
+          startCommand: 'deploy_dsa(action="start")',
+          hint: '运行 deploy_dsa(action="start") 启动服务'
+        };
+      }
     }
+    
+    // Service is running, perform analysis
     try {
       return await client.analyzeStock(code);
     } catch (error: any) {
@@ -285,10 +370,42 @@ export default definePluginEntry((api) => {
     })
   });
 
-  api.registerTool('batch_analysis', async ({ codes }) => {
-    if (!checkService()) {
-      return { error: '服务未运行' };
+  // Helper function for service check with auto-install
+  function checkServiceWithInstall(toolName: string) {
+    const serviceRunning = checkService();
+    
+    if (!serviceRunning) {
+      const installStatus = checkInstallation();
+      
+      if (!installStatus.installed) {
+        return {
+          error: 'DSA 服务未安装',
+          status: 'not_installed',
+          autoInstall: true,
+          message: `🔍 检测到您首次使用 DSA 的${toolName}功能，是否现在安装？`,
+          details: {
+            estimatedSize: '~500MB',
+            estimatedTime: '2-5 分钟'
+          },
+          installCommand: 'deploy_dsa(action="install")'
+        };
+      } else {
+        return {
+          error: 'DSA 服务未运行',
+          status: 'not_running',
+          autoStart: true,
+          message: 'DSA 服务已安装但未启动，是否现在启动？',
+          startCommand: 'deploy_dsa(action="start")'
+        };
+      }
     }
+    return null;
+  }
+
+  api.registerTool('batch_analysis', async ({ codes }) => {
+    const serviceCheck = checkServiceWithInstall('批量分析');
+    if (serviceCheck) return serviceCheck;
+    
     try {
       return await client.batchAnalyze(codes);
     } catch (error: any) {
@@ -302,9 +419,9 @@ export default definePluginEntry((api) => {
   });
 
   api.registerTool('market_review', async ({ market }) => {
-    if (!checkService()) {
-      return { error: '服务未运行' };
-    }
+    const serviceCheck = checkServiceWithInstall('大盘复盘');
+    if (serviceCheck) return serviceCheck;
+    
     try {
       return await client.marketReview(market || 'cn');
     } catch (error: any) {
@@ -318,9 +435,9 @@ export default definePluginEntry((api) => {
   });
 
   api.registerTool('ask_stock', async ({ question, code }) => {
-    if (!checkService()) {
-      return { error: '服务未运行' };
-    }
+    const serviceCheck = checkServiceWithInstall('策略问股');
+    if (serviceCheck) return serviceCheck;
+    
     try {
       return await client.askStock(question, code);
     } catch (error: any) {
