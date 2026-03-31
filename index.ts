@@ -2,11 +2,11 @@
  * Daily Stock Analysis OpenClaw Plugin
  * 
  * Bridge to Daily Stock Analysis (https://github.com/ZhuLinsen/daily_stock_analysis)
- * AI-powered stock analysis with Docker deployment
+ * AI-powered stock analysis with Python deployment
  * 
  * Features:
  * - Auto-detect stock-related tasks
- * - Docker deployment with one command
+ * - Python deployment with virtual environment (no Docker)
  * - Support A/H/US markets
  * - Decision dashboard with buy/sell points
  * - Agent-based strategy Q&A
@@ -19,7 +19,7 @@ import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { detectRelevantTools } from "./src/keywords.js";
 import { DSAClient, DSAConfig } from "./src/api-client.js";
 
@@ -30,6 +30,7 @@ import { DSAClient, DSAConfig } from "./src/api-client.js";
 interface PluginConfig {
   enabled?: boolean;
   dsaBaseUrl?: string;
+  dsaPort?: number;
   autoDeploy?: boolean;
   dockerInstallDir?: string;
   autoDetectStock?: boolean;
@@ -44,7 +45,8 @@ const CACHE_DIR_NAME = ".dsa-cache";
 
 const DEFAULT_CONFIG: PluginConfig = {
   enabled: true,
-  dsaBaseUrl: "http://localhost:8000",
+  dsaBaseUrl: "http://localhost:8009",
+  dsaPort: 8009,
   autoDeploy: false,
   dockerInstallDir: "~/.openclaw/external-services/daily_stock_analysis",
   autoDetectStock: true,
@@ -56,19 +58,6 @@ const DEFAULT_CONFIG: PluginConfig = {
 
 function getPluginDir(): string {
   return path.dirname(new URL(import.meta.url).pathname);
-}
-
-function getCacheDir(): string {
-  const pluginDir = getPluginDir();
-  return path.join(pluginDir, CACHE_DIR_NAME);
-}
-
-function ensureCacheDir(): string {
-  const cacheDir = getCacheDir();
-  if (!fs.existsSync(cacheDir)) {
-    fs.mkdirSync(cacheDir, { recursive: true });
-  }
-  return cacheDir;
 }
 
 function expandHome(dir: string): string {
@@ -105,12 +94,59 @@ function checkDSAService(baseUrl: string): boolean {
 // Tool Implementations
 // ============================================================================
 
-function createTools(config: PluginConfig) {
+function createTools(api: OpenClawPluginApi, config: PluginConfig) {
   const dsaConfig: DSAConfig = {
     baseUrl: config.dsaBaseUrl || DEFAULT_CONFIG.dsaBaseUrl!,
   };
   
   const client = new DSAClient(dsaConfig);
+  const installDir = expandHome(config.dockerInstallDir || DEFAULT_CONFIG.dockerInstallDir!);
+  const venvDir = path.join(installDir, 'venv');
+  const python = process.platform === 'win32' ? path.join(venvDir, 'Scripts', 'python.exe') : path.join(venvDir, 'bin', 'python');
+  const pip = process.platform === 'win32' ? path.join(venvDir, 'Scripts', 'pip.exe') : path.join(venvDir, 'bin', 'pip');
+
+  // Auto-detect Python
+  function checkPython(): boolean {
+    try {
+      execSync('python3 --version', { stdio: 'pipe' });
+      return true;
+    } catch {
+      try {
+        execSync('python --version', { stdio: 'pipe' });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  // Auto-install dependencies if needed
+  function ensureDependencies(): { success: boolean; error?: string } {
+    try {
+      // Check if venv exists
+      if (!fs.existsSync(venvDir)) {
+        api.logger.info('Creating virtual environment...');
+        runCommand('python3 -m venv venv', installDir);
+      }
+
+      // Try to import key packages
+      try {
+        execSync(`${python} -c "import fastapi, uvicorn, pandas"`, { 
+          cwd: installDir, 
+          stdio: 'pipe' 
+        });
+        api.logger.info('Dependencies already installed');
+        return { success: true };
+      } catch {
+        api.logger.info('Installing dependencies (this may take a few minutes)...');
+        runCommand(`${pip} install --upgrade pip`, installDir);
+        runCommand(`${pip} install -r requirements.txt`, installDir);
+        return { success: true };
+      }
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
 
   return {
     /**
@@ -121,7 +157,8 @@ function createTools(config: PluginConfig) {
       if (!serviceRunning) {
         return {
           error: "DSA 服务未运行，请先部署服务",
-          hint: "使用 deploy_dsa(action='install') 部署服务"
+          hint: "使用 deploy_dsa(action='install') 部署服务，然后 deploy_dsa(action='start') 启动",
+          autoInstallHint: true
         };
       }
 
@@ -150,7 +187,7 @@ function createTools(config: PluginConfig) {
       const serviceRunning = checkDSAService(dsaConfig.baseUrl);
       if (!serviceRunning) {
         return {
-          error: "DSA 服务未运行，请先部署服务",
+          error: "DSA 服务未运行",
           hint: "使用 deploy_dsa(action='install') 部署服务"
         };
       }
@@ -204,63 +241,55 @@ function createTools(config: PluginConfig) {
     },
 
     /**
-     * Deploy DSA service (Python, no Docker required)
+     * Deploy DSA service (Python, auto-detect and install)
      */
     deploy_dsa: async ({ action }: { action: string }) => {
-      const installDir = expandHome(config.dockerInstallDir || DEFAULT_CONFIG.dockerInstallDir!);
-      const venvDir = path.join(installDir, 'venv');
-      const python = process.platform === 'win32' ? path.join(venvDir, 'Scripts', 'python.exe') : path.join(venvDir, 'bin', 'python');
-      const pip = process.platform === 'win32' ? path.join(venvDir, 'Scripts', 'pip.exe') : path.join(venvDir, 'bin', 'pip');
-
       switch (action) {
         case 'install':
           try {
-            // Check Python
-            try {
-              execSync('python3 --version', { stdio: 'pipe' });
-            } catch {
+            // Step 1: Check Python
+            if (!checkPython()) {
               return { 
                 error: 'Python 3.10+ not found',
-                hint: 'Please install Python from https://www.python.org/downloads/'
+                hint: 'Please install Python from https://www.python.org/downloads/',
+                autoInstall: false
               };
             }
 
-            // Clone repository
+            // Step 2: Clone repository
             if (!fs.existsSync(installDir)) {
-              console.log('📦 Cloning repository...');
+              api.logger.info('Cloning repository...');
               runCommand(`git clone https://github.com/ZhuLinsen/daily_stock_analysis.git ${installDir}`);
             }
 
-            // Create virtual environment
-            if (!fs.existsSync(venvDir)) {
-              console.log('🐍 Creating virtual environment...');
-              runCommand('python3 -m venv venv', installDir);
+            // Step 3: Ensure dependencies (auto-detect and install)
+            const depResult = ensureDependencies();
+            if (!depResult.success) {
+              return { error: depResult.error };
             }
 
-            // Install dependencies
-            console.log('📦 Installing dependencies (this may take a few minutes)...');
-            runCommand(`${pip} install --upgrade pip`, installDir);
-            runCommand(`${pip} install -r requirements.txt`, installDir);
-
-            // Create .env from example
+            // Step 4: Create .env from example
             const envExample = path.join(installDir, '.env.example');
             const envFile = path.join(installDir, '.env');
             if (fs.existsSync(envExample) && !fs.existsSync(envFile)) {
               fs.copyFileSync(envExample, envFile);
+              api.logger.info(`Created .env at ${envFile}`);
             }
 
             return {
               status: 'success',
-              message: 'DSA 服务已安装（Python 模式）',
+              message: 'DSA 服务已安装（Python 模式，虚拟环境）',
+              autoInstall: true,
+              virtualEnv: true,
               nextSteps: [
                 `1. 编辑 ${envFile} 配置：`,
                 '   - STOCK_LIST=600519,hk00700,AAPL (你的股票代码)',
                 '   - GEMINI_API_KEY=your_key (至少配置一个 AI API Key)',
                 '2. 运行 deploy_dsa(action="start") 启动服务',
-                '3. 访问 http://localhost:8000 使用 Web 界面'
+                '3. 访问 http://localhost:8009 使用 Web 界面'
               ],
               installDir: installDir,
-              python: python
+              port: DEFAULT_CONFIG.dsaPort
             };
           } catch (error: any) {
             return { error: error.message };
@@ -268,6 +297,15 @@ function createTools(config: PluginConfig) {
 
         case 'start':
           try {
+            // Auto-install if needed
+            if (!fs.existsSync(venvDir)) {
+              api.logger.info('Virtual environment not found, auto-installing...');
+              const installResult = await this.deploy_dsa({ action: 'install' });
+              if ('error' in installResult) {
+                return installResult;
+              }
+            }
+
             if (!fs.existsSync(python)) {
               return {
                 error: '虚拟环境未找到',
@@ -284,32 +322,32 @@ function createTools(config: PluginConfig) {
               };
             }
 
-            console.log('🚀 Starting DSA service (Python)...');
-            console.log('💡 服务将在后台运行，访问 http://localhost:8000');
-            console.log('⚠️  按 Ctrl+C 可停止服务');
+            api.logger.info('Starting DSA service (Python)...');
             
             // Start in background
-            const { spawn } = await import('child_process');
             const child = spawn(python, ['main.py'], {
               cwd: installDir,
-              stdio: 'inherit',
-              detached: true
+              stdio: 'ignore',
+              detached: true,
+              env: { ...process.env, PYTHONUNBUFFERED: '1' }
             });
 
             child.unref();
 
+            // Wait for service to start
             setTimeout(() => {
               if (checkDSAService(dsaConfig.baseUrl)) {
-                console.log('✅ 服务启动成功！');
-                console.log('🌐 访问：http://localhost:8000');
+                api.logger.info('DSA service started successfully!');
               }
             }, 5000);
 
             return {
               status: 'starting',
               message: 'DSA 服务启动中...',
-              url: 'http://localhost:8000',
-              pid: child.pid
+              url: dsaConfig.baseUrl,
+              port: DEFAULT_CONFIG.dsaPort,
+              pid: child.pid,
+              autoInstall: true
             };
           } catch (error: any) {
             return { error: error.message };
@@ -317,7 +355,6 @@ function createTools(config: PluginConfig) {
 
         case 'stop':
           try {
-            // Find and kill python process
             if (process.platform === 'win32') {
               runCommand('taskkill /F /IM python.exe /FI "WINDOWTITLE eq *daily_stock_analysis*"');
             } else {
@@ -336,14 +373,21 @@ function createTools(config: PluginConfig) {
             const running = checkDSAService(dsaConfig.baseUrl);
             const venvExists = fs.existsSync(venvDir);
             const envExists = fs.existsSync(path.join(installDir, '.env'));
+            const pythonExists = fs.existsSync(python);
+            const requirementsFile = fs.existsSync(path.join(installDir, 'requirements.txt'));
             
             return {
               status: running ? 'running' : 'stopped',
               apiHealth: running ? 'healthy' : 'unhealthy',
               installed: venvExists,
               configured: envExists,
+              pythonReady: pythonExists,
+              requirementsReady: requirementsFile,
               installDir: installDir,
-              url: dsaConfig.baseUrl
+              url: dsaConfig.baseUrl,
+              port: DEFAULT_CONFIG.dsaPort,
+              autoInstallReady: venvExists && pythonExists,
+              message: venvExists && pythonExists ? '✅ 已就绪，可以启动' : '⚠️ 需要先安装'
             };
           } catch (error: any) {
             return { error: error.message };
@@ -351,7 +395,6 @@ function createTools(config: PluginConfig) {
 
         case 'uninstall':
           try {
-            // Stop service first
             try {
               if (process.platform === 'win32') {
                 runCommand('taskkill /F /IM python.exe /FI "WINDOWTITLE eq *daily_stock_analysis*"');
@@ -394,7 +437,9 @@ function createTools(config: PluginConfig) {
         plugin: '1.0.0',
         service: serviceVersion,
         serviceStatus: serviceRunning ? 'running' : 'stopped',
-        serviceUrl: dsaConfig.baseUrl
+        serviceUrl: dsaConfig.baseUrl,
+        port: DEFAULT_CONFIG.dsaPort,
+        virtualEnv: fs.existsSync(venvDir)
       };
     }
   };
@@ -412,7 +457,7 @@ export default definePluginEntry((api: OpenClawPluginApi) => {
     return;
   }
 
-  const tools = createTools(config);
+  const tools = createTools(api, config);
 
   // Register tools
   api.registerTool('stock_analysis', tools.stock_analysis, {
@@ -449,7 +494,7 @@ export default definePluginEntry((api: OpenClawPluginApi) => {
   });
 
   api.registerTool('deploy_dsa', tools.deploy_dsa, {
-    description: '部署 Daily Stock Analysis 服务（Docker）',
+    description: '部署 Daily Stock Analysis 服务（Python 虚拟环境，开箱即用）',
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal('install'),
@@ -467,6 +512,8 @@ export default definePluginEntry((api: OpenClawPluginApi) => {
   });
 
   api.logger.info(`${PLUGIN_NAME} loaded with ${Object.keys(tools).length} tools`);
+  api.logger.info(`DSA Port: ${DEFAULT_CONFIG.dsaPort}`);
+  api.logger.info(`Virtual Env Auto-Install: Enabled`);
 
   // Auto-detection hook (optional)
   if (config.autoDetectStock) {
@@ -476,7 +523,6 @@ export default definePluginEntry((api: OpenClawPluginApi) => {
       
       if (relevantTools.length > 0) {
         api.logger.debug(`Detected stock-related tools: ${relevantTools.join(', ')}`);
-        // Note: Auto-loading would require additional OpenClaw API support
       }
     });
   }

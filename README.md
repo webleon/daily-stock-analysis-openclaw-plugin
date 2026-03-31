@@ -4,7 +4,8 @@
 
 **Features:**
 - ✅ **Python deployment** - No Docker required!
-- ✅ **One-command setup** - Automatic virtual environment and dependencies
+- ✅ **Out-of-the-box** - Auto-detect Python, auto-create virtual environment
+- ✅ **One-command setup** - `deploy_dsa(action="install")` does everything
 - ✅ **A/H/US Markets** - Support for Chinese A-shares, HK stocks, and US stocks
 - ✅ **AI Decision Dashboard** - Buy/sell points + checklist + risk alerts
 - ✅ **Agent Q&A** - 11 built-in strategies (Chan Theory, MA, Elliott Wave, etc.)
@@ -21,18 +22,21 @@ openclaw plugins install @webleon/daily-stock-analysis-openclaw-plugin
 openclaw gateway restart
 ```
 
-### 2. Deploy DSA Service (Python, No Docker)
+### 2. Deploy DSA Service (Auto-install, Out-of-the-Box!)
 
-**Option A: Using OpenClaw tool**
+**Using OpenClaw tool:**
 ```
 deploy_dsa(action="install")
 ```
 
-**Option B: Using install script**
-```bash
-cd ~/.openclaw/extensions/daily-stock-analysis-openclaw-plugin
-node install.js --install-python
-```
+This will automatically:
+- ✅ Check if Python is installed
+- ✅ Clone the repository
+- ✅ Create virtual environment
+- ✅ Install all dependencies
+- ✅ Create .env configuration file
+
+**No manual steps required!** 🎉
 
 ### 3. Configure
 

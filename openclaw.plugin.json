@@ -90,7 +90,8 @@
   ],
   "config": {
     "enabled": true,
-    "dsaBaseUrl": "http://localhost:8000",
+    "dsaBaseUrl": "http://localhost:8009",
+    "dsaPort": 8009,
     "autoDeploy": false,
     "dockerInstallDir": "~/.openclaw/external-services/daily_stock_analysis",
     "autoDetectStock": true
