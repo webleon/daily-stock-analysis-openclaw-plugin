@@ -13,6 +13,8 @@ import { detectRelevantTools } from "./src/keywords-strict.js";
 import { DSAClient } from "./src/api-client.js";
 import { checkPythonVersion, getPythonErrorMessage } from "./src/python-check.js";
 import { verifyInstallation } from "./src/verify.js";
+import { findBestPython, autoInstallPython, createVirtualEnv, verifyVirtualEnv } from "./src/python-installer.js";
+import { interactiveSetup, testAPIConnection } from "./src/setup-wizard.js";
 
 const PORT = 8009;
 const BASE_URL = `http://localhost:${PORT}`;
@@ -474,6 +476,155 @@ export default definePluginEntry((api) => {
     };
   }, {
     description: '检查版本',
+    parameters: Type.Object({})
+  });
+
+  // New: One-click quick install
+  api.registerTool('dsa_quick_install', async () => {
+    api.logger.info('🚀 开始 DSA 快速安装...\n');
+    
+    try {
+      // Step 1: Check/Install Python
+      api.logger.info('📋 步骤 1/5: 检测 Python 环境...\n');
+      
+      let pythonPath = 'python3';
+      const bestPython = findBestPython();
+      
+      if (bestPython) {
+        api.logger.info(`✅ 发现 Python ${bestPython.version}`);
+        pythonPath = bestPython.path;
+      } else {
+        api.logger.warn('⚠️  未找到 Python 3.10+');
+        api.logger.info('🔧 尝试自动安装 Python 3.10...\n');
+        
+        const installResult = await autoInstallPython();
+        
+        if (!installResult.success) {
+          if (installResult.manualInstallRequired) {
+            return {
+              status: 'manual_required',
+              message: '需要手动安装 Python 3.10+',
+              ...installResult
+            };
+          }
+          return {
+            status: 'error',
+            error: installResult.error
+          };
+        }
+        
+        api.logger.info(`✅ Python 安装成功：${installResult.version}`);
+        pythonPath = installResult.path!;
+      }
+      
+      // Step 2: Clone repository
+      api.logger.info('\n📋 步骤 2/5: 克隆仓库...\n');
+      
+      if (!fs.existsSync(INSTALL_DIR)) {
+        execSync(`git clone https://github.com/ZhuLinsen/daily_stock_analysis.git ${INSTALL_DIR}`, {
+          stdio: ['pipe', 'inherit', 'inherit']
+        });
+        api.logger.info('✅ 仓库已克隆');
+      } else {
+        api.logger.info('ℹ️  仓库已存在，跳过克隆');
+      }
+      
+      // Step 3: Create virtual environment
+      api.logger.info('\n📋 步骤 3/5: 创建虚拟环境...\n');
+      
+      const venvResult = createVirtualEnv(INSTALL_DIR, pythonPath);
+      
+      if (!venvResult.success) {
+        return {
+          status: 'error',
+          error: venvResult.error
+        };
+      }
+      
+      // Verify virtual environment
+      const verifyResult = verifyVirtualEnv(INSTALL_DIR);
+      
+      if (!verifyResult.valid) {
+        return {
+          status: 'error',
+          error: verifyResult.error
+        };
+      }
+      
+      api.logger.info(`✅ 虚拟环境验证通过：${verifyResult.pythonVersion}`);
+      
+      // Step 4: Install dependencies
+      api.logger.info('\n📋 步骤 4/5: 安装依赖...\n');
+      
+      const pip = process.platform === 'win32'
+        ? 'venv\\Scripts\\pip'
+        : 'venv/bin/pip';
+      
+      execSync(`${pip} install --upgrade pip`, {
+        cwd: INSTALL_DIR,
+        stdio: ['pipe', 'inherit', 'inherit']
+      });
+      
+      execSync(`${pip} install -r requirements.txt`, {
+        cwd: INSTALL_DIR,
+        stdio: ['pipe', 'inherit', 'inherit']
+      });
+      
+      api.logger.info('✅ 依赖安装完成');
+      
+      // Step 5: Interactive setup
+      api.logger.info('\n📋 步骤 5/5: 配置服务...\n');
+      
+      const envFile = path.join(INSTALL_DIR, '.env');
+      const setupResult = await interactiveSetup(envFile);
+      
+      if (!setupResult.success) {
+        return {
+          status: 'error',
+          error: setupResult.error
+        };
+      }
+      
+      // Test API connection
+      if (setupResult.config) {
+        const testResult = await testAPIConnection(setupResult.config);
+        
+        if (!testResult.success) {
+          api.logger.warn('⚠️  API 测试失败，但安装已完成');
+          api.logger.warn(`   错误：${testResult.error}`);
+        } else {
+          api.logger.info(`✅ API 连接测试通过 (${testResult.provider})`);
+        }
+      }
+      
+      // Summary
+      api.logger.info('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      api.logger.info('🎉 DSA 服务安装完成！');
+      api.logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      
+      return {
+        status: 'success',
+        message: 'DSA 服务已就绪',
+        pythonVersion: verifyResult.pythonVersion,
+        installDir: INSTALL_DIR,
+        nextSteps: [
+          '启动服务：deploy_dsa(action="start")',
+          '分析股票：用 DSA 分析贵州茅台',
+          '查看状态：deploy_dsa(action="status")'
+        ]
+      };
+      
+    } catch (error: any) {
+      api.logger.error(`❌ 安装失败：${error.message}`);
+      
+      return {
+        status: 'error',
+        error: error.message,
+        hint: '请检查日志或重新尝试安装'
+      };
+    }
+  }, {
+    description: '一键安装 DSA 服务（自动检测环境 + 交互式配置）',
     parameters: Type.Object({})
   });
 
