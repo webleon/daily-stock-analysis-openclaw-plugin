@@ -30,13 +30,33 @@ deploy_dsa(action="install")
 ```
 
 This will automatically:
-- ✅ Check if Python is installed
+- ✅ Check if Python is installed (requires Python 3.10+)
 - ✅ Clone the repository
 - ✅ Create virtual environment
 - ✅ Install all dependencies
 - ✅ Create .env configuration file
 
 **No manual steps required!** 🎉
+
+---
+
+## ⚠️ Important: Trigger Mode
+
+**Strict Mode** (v1.1+) - DSA tools only trigger when you explicitly mention DSA:
+
+**✅ Will trigger DSA:**
+- "用 DSA 分析贵州茅台"
+- "DSA 分析茅台"
+- "用 Daily Stock Analysis 分析"
+- "股票分析插件 分析茅台"
+
+**❌ Won't trigger DSA** (handled by Superpowers or AI assistant):
+- "分析贵州茅台"
+- "看看茅台走势"
+- "写代码分析股票"
+- "测试股票策略"
+
+This design avoids conflicts with Superpowers skills!
 
 ### 3. Configure
 
