@@ -55,20 +55,6 @@
       }
     },
     {
-      "name": "market_review",
-      "description": "大盘复盘，查看市场概览和板块涨跌",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "market": {
-            "type": "string",
-            "enum": ["cn", "us", "both"],
-            "description": "市场：cn(A 股), us(美股), both(两者)"
-          }
-        }
-      }
-    },
-    {
       "name": "ask_stock",
       "description": "Agent 策略问股，多轮对话分析（支持缠论/均线/波浪等 11 种策略）",
       "parameters": {
