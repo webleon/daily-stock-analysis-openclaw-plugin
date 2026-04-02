@@ -12,7 +12,31 @@ import { execSync, spawn } from "node:child_process";
 import { detectRelevantTools } from "./src/keywords-strict.js";
 import { DSAClient } from "./src/api-client.js";
 
-const PORT = 8009;
+function isPortAvailable(port: number): boolean {
+  try {
+    execSync(`lsof -i :${port}`, { stdio: 'ignore' });
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function findAvailablePort(startPort: number): number {
+  let port = startPort;
+  while (!isPortAvailable(port) && port < startPort + 100) {
+    port++;
+  }
+  return port;
+}
+
+const DEFAULT_PORT = 8009;
+const PORT = findAvailablePort(DEFAULT_PORT);
+
+if (PORT !== DEFAULT_PORT) {
+  // Note: api logger not available at module load time, will log in plugin init
+  console.warn(`⚠️ 端口 ${DEFAULT_PORT} 被占用，使用端口 ${PORT}`);
+}
+
 const BASE_URL = `http://localhost:${PORT}`;
 const INSTALL_DIR = path.join(process.env.HOME || '', '.openclaw/external-services/daily_stock_analysis');
 
