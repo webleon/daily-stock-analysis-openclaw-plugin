@@ -94,10 +94,30 @@ This avoids conflicts with Superpowers skills!
 |------|-------------|---------|
 | `stock_analysis` | Analyze single stock | `stock_analysis(code="600519")` |
 | `batch_analysis` | Analyze multiple stocks | `batch_analysis(codes=["600519", "AAPL"])` |
-| `market_review` | Market overview | `market_review(market="cn")` |
 | `ask_stock` | Agent strategy Q&A | `ask_stock(question="用缠论分析 600519")` |
 | `deploy_dsa` | Deploy/manage service | `deploy_dsa(action="start")` |
 | `dsa_version` | Check version | `dsa_version()` |
+
+---
+
+## 📈 大盘复盘
+
+大盘复盘功能通过原项目命令行或 Bot 命令使用：
+
+**方式 1: 命令行**
+```bash
+cd ~/.openclaw/external-services/daily_stock_analysis
+source venv/bin/activate
+python main.py --market-review
+```
+
+**方式 2: Bot 命令**
+```
+/market  # Telegram/Discord Bot 命令
+```
+
+**方式 3: 包含在股票分析中**
+配置 `MARKET_REVIEW_ENABLED=true` 后，执行股票分析时会自动包含大盘复盘内容。
 
 ---
 
