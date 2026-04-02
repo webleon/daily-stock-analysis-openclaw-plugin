@@ -238,33 +238,7 @@ export default definePluginEntry((api) => {
     })
   });
 
-  api.registerTool('market_review', async ({ market }) => {
-    if (!checkService()) {
-      return {
-        error: 'DSA 服务未运行',
-        hint: '请运行：deploy_dsa(action="start")',
-        debug: {
-          port: PORT,
-          url: BASE_URL,
-          serviceRunning: checkService()
-        }
-      };
-    }
-    try {
-      return await client.marketReview(market || 'cn');
-    } catch (error: any) {
-      return { error: error.message };
-    }
-  }, {
-    description: '大盘复盘',
-    parameters: Type.Object({
-      market: Type.Optional(Type.Union([
-        Type.Literal('cn'),
-        Type.Literal('us'),
-        Type.Literal('both')
-      ]))
-    })
-  });
+
 
   api.registerTool('ask_stock', async ({ question, code }) => {
     if (!checkService()) {
