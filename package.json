@@ -8,7 +8,7 @@
     "dsa-deploy": "./install.js"
   },
   "scripts": {
-    "install": "node install.js",
+    "setup": "node install.js",
     "postinstall": "echo 'Daily Stock Analysis OpenClaw Plugin installed! Run: openclaw gateway restart'"
   },
   "keywords": [
