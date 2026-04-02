@@ -92,7 +92,12 @@ export default definePluginEntry((api) => {
         if (!status.installed) {
           return {
             error: 'DSA 服务未安装',
-            hint: '请先运行：deploy_dsa(action="install")'
+            hint: '请先运行：deploy_dsa(action="install")',
+            debug: {
+              installDir: INSTALL_DIR,
+              installed: checkInstallation().installed,
+              message: status.message
+            }
           };
         }
         
@@ -165,7 +170,12 @@ export default definePluginEntry((api) => {
     if (!checkService()) {
       return {
         error: 'DSA 服务未运行',
-        hint: '请运行：deploy_dsa(action="start")'
+        hint: '请运行：deploy_dsa(action="start")',
+        debug: {
+          port: PORT,
+          url: BASE_URL,
+          serviceRunning: checkService()
+        }
       };
     }
     try {
@@ -182,7 +192,15 @@ export default definePluginEntry((api) => {
 
   api.registerTool('batch_analysis', async ({ codes }) => {
     if (!checkService()) {
-      return { error: 'DSA 服务未运行' };
+      return {
+        error: 'DSA 服务未运行',
+        hint: '请运行：deploy_dsa(action="start")',
+        debug: {
+          port: PORT,
+          url: BASE_URL,
+          serviceRunning: checkService()
+        }
+      };
     }
     try {
       return await client.batchAnalyze(codes);
@@ -198,7 +216,15 @@ export default definePluginEntry((api) => {
 
   api.registerTool('market_review', async ({ market }) => {
     if (!checkService()) {
-      return { error: 'DSA 服务未运行' };
+      return {
+        error: 'DSA 服务未运行',
+        hint: '请运行：deploy_dsa(action="start")',
+        debug: {
+          port: PORT,
+          url: BASE_URL,
+          serviceRunning: checkService()
+        }
+      };
     }
     try {
       return await client.marketReview(market || 'cn');
@@ -218,7 +244,15 @@ export default definePluginEntry((api) => {
 
   api.registerTool('ask_stock', async ({ question, code }) => {
     if (!checkService()) {
-      return { error: 'DSA 服务未运行' };
+      return {
+        error: 'DSA 服务未运行',
+        hint: '请运行：deploy_dsa(action="start")',
+        debug: {
+          port: PORT,
+          url: BASE_URL,
+          serviceRunning: checkService()
+        }
+      };
     }
     try {
       return await client.askStock(question, code);
